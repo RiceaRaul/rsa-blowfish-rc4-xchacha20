@@ -1,61 +1,51 @@
 import os
-from abc import ABC, abstractmethod
 import base64
+import hashlib
+import math
+from random import randbytes
 
 from Crypto.Util import number
 from Crypto.Util.strxor import strxor
 from Crypto.Util.asn1 import DerSequence
 from Crypto.IO import PEM
-import hashlib
-import math
-from random import randbytes
+
+from ciphers.asymetric import AsymmetricKey, AsymmetricCipher
 
 
-class RSAKey(ABC):
-
-    @abstractmethod
-    def import_key(self, key: str | bytes) -> None:
-        pass
-
-    @abstractmethod
-    def export_key(self) -> str:
-        pass
-
-    def import_from_file(self, path: os.PathLike | str):
-        with open(path, 'r') as f:
-            key = f.read()
-        self.import_key(key)
-
-    def export_to_file(self, path: os.PathLike | str):
-        key_pem = self.export_key()
-        with open(path, 'w') as f:
-            f.write(key_pem)
-
-
-class RSAPublicKey(RSAKey):
+class RSAPublicKey(AsymmetricKey):
     """
-    Class to define the structure of an RSA Public Key.
-    """
-    modulus: int
-    exponent: int
+Class to define the structure of an RSA Public Key.
+"""
 
     def __init__(self, modulus: int | None = None, exponent: int | None = None):
+        """
+Initialize an RSA public key.
+
+Args:
+modulus: The modulus value (n)
+exponent: The public exponent (e)
+        """
         self.modulus = modulus
         self.exponent = exponent
 
     def encrypt_int(self, integer_message: int) -> int:
         """
-        Encrypting a message using the public key, it raises the message converted to an integer to the public
-        exponent then it gets the modulus using the modulus of the public key.
-        :param integer_message: Message to encrypt, transformed into an integer
-        :return: Encrypted message, as an integer
+Encrypting a message using the public key.
+
+Args:
+integer_message: Message to encrypt, transformed into an integer
+
+Returns:
+Encrypted message, as an integer
         """
         return int(pow(integer_message, self.exponent, self.modulus))
 
     def export_key(self) -> str:
         """
-        Encodes the RSA public key to the ASN.1 DER format then transforms it into the well known PEM format.
-        :return: PEM-encoded RSA public key.
+Encodes the RSA public key to the ASN.1 DER format then transforms it into the PEM format.
+
+Returns:
+PEM-encoded RSA public key
         """
         key = DerSequence([self.modulus,
                            self.exponent]).encode()
@@ -63,6 +53,12 @@ class RSAPublicKey(RSAKey):
         return pem
 
     def import_key(self, key: str | bytes) -> None:
+        """
+Import a key from PEM format.
+
+Args:
+key: The PEM-encoded key
+        """
         der, key_type, _, = PEM.decode(key)
         if key_type != 'RSA PUBLIC KEY':
             raise ValueError('Trying to import a RSA Private Key in an RSAPublicKey object.')
@@ -72,19 +68,10 @@ class RSAPublicKey(RSAKey):
         self.__init__(*raw_key_data)
 
 
-class RSAPrivateKey(RSAKey):
+class RSAPrivateKey(AsymmetricKey):
     """
-    Class to define the structure of an RSA Private Key
-    """
-    version: int = 0
-    modulus: int  # n
-    public_exponent: int  # e
-    private_exponent: int  # d
-    prime1: int  # p
-    prime2: int  # q
-    exponent1: int = None
-    exponent2: int = None
-    coefficient: int = None
+Class to define the structure of an RSA Private Key
+"""
 
     def __init__(self,
                  modulus: int | None = None,
@@ -92,6 +79,17 @@ class RSAPrivateKey(RSAKey):
                  private_exponent: int | None = None,
                  prime1: int | None = None,
                  prime2: int | None = None):
+        """
+Initialize an RSA private key.
+
+Args:
+modulus: The modulus value (n)
+public_exponent: The public exponent (e)
+private_exponent: The private exponent (d)
+prime1: The first prime factor (p)
+prime2: The second prime factor (q)
+        """
+        self.version = 0
         self.modulus = modulus  # n
         self.public_exponent = public_exponent  # e
         self.private_exponent = private_exponent  # d
@@ -99,28 +97,34 @@ class RSAPrivateKey(RSAKey):
         self.prime2 = prime2  # q
         # The fields below are part of the RSA ASN.1 format and are normally used with the Chinese Remainder
         # Theorem to decrypt messages.
-        if private_exponent is not None:
+        if private_exponent is not None and prime1 is not None and prime2 is not None:
             self.exponent1 = private_exponent % (prime1 - 1)
             self.exponent2 = private_exponent % (prime2 - 1)
-        if prime1 is not None:
-            self.coefficient = int((prime1 ** -1) % prime1)
+            self.coefficient = int((prime1 ** -1) % prime2)
+        else:
+            self.exponent1 = None
+            self.exponent2 = None
+            self.coefficient = None
 
     def decrypt_int(self, cipher_text_int: int) -> int:
         """
-        This method takes in an RSA-encrypted message (Integer format) and decrypts it by raising it to the power
-        of the private exponent and then doing the modulus operation with the key's modulus.
-        This method would ideally use the Chinese Remainder theorem to decrypt the message as it is a more
-        secure method of doing so.
-        :param cipher_text_int: Encrypted message as int.
-        :return: Decrypted message as int.
+Decrypt an RSA-encrypted integer.
+
+Args:
+cipher_text_int: Encrypted message as int
+
+Returns:
+Decrypted message as int
         """
         # Improvement needed here.
         return int(pow(cipher_text_int, self.private_exponent, self.modulus))
 
     def get_public(self) -> RSAPublicKey:
         """
-        Derives a public key from a private key.
-        :return: Corresponding public key from a RSA private key.
+Derives a public key from a private key.
+
+Returns:
+Corresponding public key from a RSA private key
         """
         if not self.modulus:
             raise ValueError("Modulus is not set.")
@@ -131,8 +135,10 @@ class RSAPrivateKey(RSAKey):
 
     def export_key(self) -> str:
         """
-        Encodes the RSA private key to the ASN.1 DER format then transforms it into the well known PEM format.
-        :return: PEM-encoded RSA private key.
+Encodes the RSA private key to the ASN.1 DER format then transforms it into the PEM format.
+
+Returns:
+PEM-encoded RSA private key
         """
         key = DerSequence([0,
                            self.modulus,
@@ -147,6 +153,12 @@ class RSAPrivateKey(RSAKey):
         return pem
 
     def import_key(self, key: str | bytes) -> None:
+        """
+Import a key from PEM format.
+
+Args:
+key: The PEM-encoded key
+        """
         der, key_type, _, = PEM.decode(key)
         if key_type != 'RSA PRIVATE KEY':
             raise ValueError('Trying to import a RSA Public Key in an RSAPrivateKey object.')
@@ -156,28 +168,37 @@ class RSAPrivateKey(RSAKey):
         self.__init__(*(raw_key_data[1:6]))
 
 
-class RSACipher:
-    public_key: RSAPublicKey
-    private_key: RSAPrivateKey
+class RSACipher(AsymmetricCipher):
+    """
+Implementation of RSA encryption algorithm.
+"""
 
     def __init__(self, private_key: RSAPrivateKey = None, public_key: RSAPublicKey = None):
-        self.public_key = public_key
-        self.private_key = private_key
-
-    @staticmethod
-    def gen_keypair(size: int) -> tuple[RSAPrivateKey, RSAPublicKey]:
         """
-        This method generates an RSA keypair. It generates two random prime numbers and then computes all other
-        required elements to create an RSA keypair.
-        :param size: Size of the prime numbers used to generate the keypair, in bits. RSA key size will be double.
-        :return: Tuple containing the private key and public key.
+Initialize the RSA cipher.
+
+Args:
+private_key: The private key for decryption
+public_key: The public key for encryption
+        """
+        super().__init__(public_key, private_key)
+
+    @classmethod
+    def gen_keypair(cls, size: int) -> tuple[RSAPrivateKey, RSAPublicKey]:
+        """
+Generate an RSA keypair.
+
+Args:
+size: Size of the prime numbers used to generate the keypair, in bits
+
+Returns:
+A tuple containing (private_key, public_key)
         """
         # Generates the two prime numbers, these should be kept secret and are part of the private key.
         p = number.getPrime(size)
         q = number.getPrime(size)
 
-        # Calculate n, which is used as the modulus for the private and public key. Its size is 2 * size
-        # And it is the actual size of the RSA keys.
+        # Calculate n, which is used as the modulus for the private and public key
         n = p * q
 
         # Euler's totient function
@@ -198,8 +219,15 @@ class RSACipher:
     @staticmethod
     def _mgf1(seed: bytes, length: int, hash_func=hashlib.sha256) -> bytes:
         """
-        Mask Generation Function 1. This is used for the OAEP padding when encrypting and decrypting messages.
-        :return:
+Mask Generation Function 1 for OAEP padding.
+
+Args:
+seed: Seed bytes
+length: Desired length of output
+hash_func: Hash function to use
+
+Returns:
+Generated mask bytes
         """
         h_len = hash_func().digest_size
         # This implementation follows the RFC mentioned below.
@@ -222,10 +250,13 @@ class RSACipher:
 
     def encrypt(self, message: bytes) -> bytes:
         """
-        Function to encrypt a message using the RSA Public key. This function first applies OAEP padding to the
-        message then encrypts it.
-        :param message: Message to encrypt in bytes format.
-        :return: Encrypted bytes.
+Encrypt a message using RSA OAEP padding.
+
+Args:
+message: Message bytes to encrypt
+
+Returns:
+Encrypted message, base64 encoded
         """
         if self.public_key is None:
             raise ValueError("Public key is not set.")
@@ -278,12 +309,16 @@ class RSACipher:
 
     def decrypt(self, cipher_text: bytes) -> str:
         """
-        Decrypts an RSA OAEP padded message using the private key.
-        :param cipher_text: Encrypted bytes, base64 encoded.
-        :return: Decrypted ciphertext
+Decrypt an RSA OAEP padded message.
+
+Args:
+cipher_text: Encrypted bytes, base64 encoded
+
+Returns:
+Decrypted plaintext as string
         """
         if self.private_key is None:
-            raise ValueError("Public key is not set.")
+            raise ValueError("Private key is not set.")
 
         cipher_text = base64.b64decode(cipher_text)
 
@@ -307,7 +342,6 @@ class RSACipher:
         # Step 3b, Y should be 0 here.
         y = encoded_message[0]
         masked_seed = encoded_message[1:h_len + 1]
-
         masked_db = encoded_message[h_len + 1:]
 
         # Step 3c
@@ -332,7 +366,3 @@ class RSACipher:
             raise ValueError("Incorrect decryption")
         # Step 4
         return data_block[one_pos + 1:].decode()
-
-
-if __name__ == '__main__':
-    pass
