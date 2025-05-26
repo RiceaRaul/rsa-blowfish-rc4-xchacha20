@@ -100,7 +100,7 @@ prime2: The second prime factor (q)
         if private_exponent is not None and prime1 is not None and prime2 is not None:
             self.exponent1 = private_exponent % (prime1 - 1)
             self.exponent2 = private_exponent % (prime2 - 1)
-            self.coefficient = int((prime1 ** -1) % prime2)
+            self.coefficient = pow(prime1, -1, prime2)
         else:
             self.exponent1 = None
             self.exponent2 = None

@@ -1,5 +1,5 @@
 import argparse
-from ciphers.rsa import RSACipher
+from instances.rsa import RSACipher
 
 
 def main():
