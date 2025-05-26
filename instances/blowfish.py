@@ -192,27 +192,28 @@ class BlowfishCipher(Cipher):
         0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5, 0xb5470917, 0x9216d5d9, 0x8979fb1b
     ]
 
-    def _init_cipher(self, key: str) -> None:
-        """
-        Initialize the blowfish cipher with the provided key.
-
-        Args:
-            key: The encryption/decryption key
-        """
+    def __init__(self, key: str | None = None) -> None:
         if 4 >= len(key) >= 56:
             raise ValueError('Key size should be between 32 and 448 bits.')
+        self._key = key
+        if key is not None:
+            self._init_blowfish()
+
+    @property
+    def key(self):
+        return self._key
+
+    @key.setter
+    def key(self, new_key: str):
+        self._key = new_key
         self._init_blowfish()
 
     def _f_function(self, arg: int) -> int:
         """
         F Function used during the blowfish encryption/decryption process. It splits the input in four 8-bit quarters
         and uses these quarters as the input for the S-BOXes.
-
-        Args:
-            arg: 32-bit half-block to be processed
-
-        Returns:
-            32-bit half-block that is passed through the S-BOXes
+        :param arg: 32-bit half-block to be processed.
+        :return: 32-bit haf-block that is passed through the S-BOXes.
         """
         temp = self._S_BOX[0][arg >> 24]
         temp = (temp + self._S_BOX[1][arg >> 16 & 0xff]) % 2 ** 32
@@ -222,7 +223,9 @@ class BlowfishCipher(Cipher):
 
     def _init_blowfish(self):
         """
-        Generates the sub keys and initializes the P-BOX with them.
+        Generates the sub keys and initializes the P-BOX with them, it then
+        Initializes the blowfish P-BOX and S-BOXes using the
+        :return:
         """
         if self._key is None:
             raise ValueError('Key is none.')
@@ -249,9 +252,8 @@ class BlowfishCipher(Cipher):
     def _generate_sub_keys(self, key: str) -> None:
         """
         Initializes the P-BOX by XOR-ing each byte in the S-BOX with a byte from the key, cycling the key if needed.
-
-        Args:
-            key: Plain text key to be encrypted
+        :param key: Plain text key to be encrypted
+        :return: None
         """
         # Converts the key to hexadecimal format.
         key = hex(int.from_bytes(key.encode('utf-8'), 'big'))[2:]
@@ -262,14 +264,11 @@ class BlowfishCipher(Cipher):
 
     def _encrypt_block(self, left: int, right: int) -> tuple:
         """
-        Encrypts a single 64-bit block by putting it through 16 rounds of processing.
-
-        Args:
-            left: First 32 bits of the block
-            right: Last 32 bits of the block
-
-        Returns:
-            Encrypted halves of the 64 bit block
+        Encrypts a single 64-bit block by putting it through 16 rounds of processing. After the 16 rounds, the halves
+        are then swapped, being XORed with the 16th and 17th element of the PBOX
+        :param left: First 32 bits of the block
+        :param right: Last 32 bits of the block
+        :return: Encrypted halves of the 64 bit block.
         """
         for i in range(16):
             left ^= self._P_BOX[i]
@@ -283,14 +282,12 @@ class BlowfishCipher(Cipher):
 
     def _decrypt_block(self, left: int, right: int) -> tuple:
         """
-        Decrypts a single 64-bit block by processing it 16 times.
-
-        Args:
-            left: First 32 bits of the block
-            right: Last 32 bits of the block
-
-        Returns:
-            Decrypted halves of the 64 bit block
+        Decrypts a single 64-bit block by processing it 16 times. The difference between this and the encryption
+        operation is that the PBOX is used in reverse order. The rounds use PBOX elements 17 through 2 and after the
+        final swap, the left and right are XORed with the first two PBOXes.
+        :param left: First 32 bits of the block
+        :param right: Last 32 bits of the block
+        :return: Decrypted halves of the 64 bit block.
         """
         for i in range(17, 1, -1):
             left ^= self._P_BOX[i]
@@ -305,12 +302,8 @@ class BlowfishCipher(Cipher):
     def encrypt(self, plain_text: bytes) -> bytes:
         """
         Encrypts a plain text byte string using the Blowfish cipher and the provided key.
-
-        Args:
-            plain_text: Plain text to encrypt
-
-        Returns:
-            Encrypted plain text, base64 encoded
+        :param plain_text: Plain text to encrypt.
+        :return: Encrypted plain text, base64 encoded.
         """
         # Pads the plain text so its length is a multiple of 8, so it can be nicely split into blocks of 8 bytes.
         padded = plain_text.ljust(len(plain_text) + (8 - len(plain_text) % 8), b'\0')
@@ -333,12 +326,8 @@ class BlowfishCipher(Cipher):
     def decrypt(self, ciphertext: bytes) -> bytes:
         """
         Decrypts a base64 encoded cipher text.
-
-        Args:
-            ciphertext: Text to decrypt
-
-        Returns:
-            Decrypted input
+        :param ciphertext:  to decrypt
+        :return: Decrypted input.
         """
         ciphertext = base64.b64decode(ciphertext)
         decrypted_blocks = list()
@@ -357,3 +346,10 @@ class BlowfishCipher(Cipher):
         # Remove the padding from each block then join them together again.
         decrypted_blocks = [block.to_bytes(8, 'big').strip(b'\0') for block in decrypted_blocks]
         return b''.join(decrypted_blocks)
+
+
+if __name__ == '__main__':
+    fish = BlowfishCipher('secure key to encrypt with')
+    encrypted = fish.encrypt(b'secret messagee')
+    print(encrypted)
+    print(fish.decrypt(encrypted))
